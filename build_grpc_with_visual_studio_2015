@@ -1,0 +1,242 @@
+December 07, 2015  |  Software Engineering  |  Volodymyr Korniichuk
+gRPC framework by Google The situation with RPC today reminds of the famous comic strip about standards – much has been done in this area: ancient DCOM and Cobra, strange SOAP and .NET Remoting, contemporary REST and AMQP (it’s true, that some of the things mentioned are not formally RPC, and there has been some discussion about the terminology, but all of the above mentioned are used as RPC, and if something looks like a duck, swims like a duck, and quacks like a duck, – it can be called a duck).
+
+So, just as the comics goes, Google comes along and announces that it has finally created another RPC standard – the last and the best one. And it is clear why Google has done that. It is unwise in the 21st century to continue transferring petabytes of data using the old inefficient HTTP+REST and to lose money on each byte. Taking somebody else’s standard and, therefore, saying “we could not come up with a better one” – does not look like Google at all.
+
+Hence, here comes gRPC – a new framework for remote procedure call by Google. This article analyses why this standard, unlike the previous “14”, is likely to conquer the world (or at least a part of it), instructs on how to build gRPC for Windows + Visual Studio (the official documentation misses out about 5 vital steps, which are crucial for the assembly), and shows how to write a simple service and a client, which will exchange requests and responses.
+
+Why do we need another standard?
+Let’s look at the standards which exist today. The first one we are likely to come across is REST + HTTP/1.1. Of course, there are different standards, but about three fourths of client-server communication is covered by it. Having a closer look will tell us, that REST is becoming CRUD in 95% of cases.
+
+So, we have the following:
+
+Inefficient HTTP/1.1. protocol – uncompressed headers, the absence of proper two-way connection, inefficient use of OS resources, extra traffic, unwanted delays.
+The necessity to adjust our data and event model to REST + CRUD, which is often too hard. Besides, it makes leading IT companies, like Yandex, for instance, write articles, explaining how to use HTTP protocol correctly, which would be unnecessary if people were not forced to think what to use in a given situation – PUT or POST, or which HTTP-code should be returned to mean what it is supposed to mean.
+And this is where gRPC comes in. In the box we have the following:
+
+Protobuf as a serializing structured data mechanism. This tool has proved to be useful and efficient. Everyone who needs productivity has used Protobuf and thought of ways to provide the necessary traffic. But now everything comes together in a package.
+HTTP/2 as a transport layer, which is a very powerful choice. It allows full data compression, traffic control, calling events on server, overusing one socket for several parallel requests.
+Static paths, which means that there is no more “service/collection/resource/request? parameter=value”. There is only “service” now, and it is up to you to decide what model to use to describe what is inside your service.
+No more need in connecting your methods to HTTP methods, or returned values to HTTP statuses. You are free to write what you want.
+SSL/TLS, OAuth 2.0, authentication through Google services, and the possibility of adding your own authentication (a two-factor one, for example).
+Support for 9 languages: C, C++, Java, Go, Node.js, Python, Ruby, Objective-C, PHP, C#. What’s more – you can realize your own version using any language you like (i.e. Brainfuck).
+gRPC support for public API by Google, which is functioning already for some services. Of course, REST versions will remain. But would you choose a REST-version of a mobile application or a gRPC-version, given that they are equal in terms of development expenses, but the gRPC-version works twice as fast? What, do you think, would your competitor choose?
+Assembling gRPC
+Necessary tools:
+
+Git
+Visual Studio 2013 + Nuget
+CMake
+Getting the code
+Get the gRPC repository from Github
+Execute the command:
+git submodule update –init
+This is necessary to download the dependencies (protobuf, openssl, etc.)
+
+Building Protobuf
+Go to folder grpc\third_party\protobuf\cmake, and create a “build” folder. Open the “build” folder.
+Execute the following:
+cmake -G «Visual Studio 12 2013» -DBUILD_TESTING=OFF…
+Open the newly created file protobuf.sln in Visual Studio and build (F7). This step provides us with valuable artefacts, namely – protoc.exe, which is needed to generate the serialization/deserialization data code, and lib-files, which will be used during gRPC linking.
+Copy folder grpc\third_party\protobuf\cmake\build\Debug to folder grpc\third_party\protobuf\cmake. To highlight once more – it is very important to copy the Debug folder to the folder one level higher. The gRPC and Protobuf documentation seem to be inconsistent in treating this aspect. The Protobuf documentation states, that everything is to be built in the “build” folder, but the source code of the gRPC projects knows nothing about this folder and searches for Protobuf libraries in grpc\third_party\protobuf\cmake\Debug.
+Building gRPC
+Open file grpc\vsprojects\grpc_protoc_plugins.sln and build it.
+If the previous step of building Protobuf has been done successfully, everything should run smoothly. The result is the plug-ins to protoc.exe, which allow it to not only generate serialization/deserialization code, but also to add the gRPC functionality (i.e. remote procedure call). The plug-ins and protoc.exe must be located in the same folder, for instance, in grpc\vsprojects\Debug.
+Open file grpc\vsprojects\grpc.sln and build it.
+During the build, Nuget should launch and download the necessary dependencies (openssl, zlib). If you don’t have Nuget or it hasn’t downloaded the dependencies, the build will fail.
+After the build is over, all the necessary libraries will be available to be used in the project for gRPC communication.
+Our project
+Let’s write an API for Stackoverflow using gRPC.
+
+We’ll have the following methods:
+
+GetKarma will receive the string with username, and will return a fractional number with the value of user’s karma.
+PostArticle will receive the request to create a new article with all its metadata, and will return the result of a publication – a structure which will contain the link to the article, the time of publication, and the text of an error, if publication fails.
+It must be described in gRPC terms, and it will look something like this (type descriptions can be found in Protobuf documentation):
+
+syntax = “proto3”;
+
+package StackoverflowApi;
+
+message KarmaRequest {
+string username = 1;
+}
+
+message KarmaResponse {
+string username = 1;
+float karma = 2;
+}
+
+message PostArticleRequest {
+string title = 1;
+string body = 2;
+repeated string tag = 3;
+repeated string hub = 4;
+}
+
+message PostArticleResponse {
+bool posted = 1;
+string url = 2;
+string time = 3;
+string error_code = 4;
+}
+
+service StackoverflowApi {
+rpc GetKarma(KarmaRequest) returns (KarmaResponse) {}
+rpc PostArticle(PostArticleRequest) returns (PostArticleResponse) {}
+}
+
+Open file grpc\vsprojects\Debug and launch 2 commands (please, note, that the official documentation has a mistake there, it lists wrong arguments):
+
+protoc –grpc_out=. –plugin=protoc-gen-grpc=grpc_cpp_plugin.exe Stackover.proto
+protoc –cpp_out=. Stackover.proto
+
+The result should be 4 files:
+
+Stackover.pb.h
+Stackover.pb.cc
+Stackover.grpc.pb.h
+Stackover.grpc.pb.cc
+It is quite obvious, that these are the skeleton of the client and the service, which will be able to communicate under the described above protocol.
+
+Creating our project
+Let’s create a new solution in Visual Studio and name it StackoverflowApi.
+Add two console applications to it – StackoverflowServer and StackoverflowClient.
+Include into the applications the h- and cc-files, which have been generated during the previous step. You have to include all the four files to the server, but the client should have only two – Stackover.pb.h and Stackover.pb.cc.
+Add to the projects settings, in Additional Include Directories, the paths to the following folders: grpc\third_party\protobuf\src and grpc\include.
+Add to the projects settings, in Additional Library Directories, the path to grpc\third_party\protobuf\cmake\Debug.
+Add to the projects settings, in Additional Dependencies, the libprotobuf.lib file
+Choose the same linking type, which was used to build Protobuf (the Runtime Library property in Code Generation tab). At this point you may find out, that you have built Protobuf with a different configuration, so you will have to go back and build it again. I have chosen /MTd in both cases.
+Using Nuget include the dependencies for zlib and openssl.
+So, everything is built, but nothing works yet.
+
+Client
+First, we have to create a class, inherited from the stub, generated in Stackover.pb.h. Second, run the GetKarma and PostArticle in it. Third, call them and, for example, output the results to the console. It will look something like this:
+
+#include <iostream>
+#include <memory>
+#include <string>
+
+#include <grpc/grpc.h>
+#include <grpc++/channel.h>
+#include <grpc++/client_context.h>
+#include <grpc++/create_channel.h>
+#include <grpc++/credentials.h>
+#include “Stackover.grpc.pb.h”
+
+using grpc::Channel;
+using grpc::ChannelArguments;
+using grpc::ClientContext;
+using grpc::Status;
+using StackoverflowApi::KarmaRequest;
+using StackoverflowApi::KarmaResponse;
+using StackoverflowApi::PostArticleRequest;
+using StackoverflowApi::PostArticleResponse;
+using StackoverflowApi::StackoverflowApi;
+
+class StackoverflowClient {
+public:
+StackoverflowClient(std::shared_ptr channel)
+: stub_(StackoverflowApi::NewStub(channel)) {}
+
+float GetKarma(const std::string& username) {
+KarmaRequest request;
+request.set_username(username);
+KarmaResponse reply;
+ClientContext context;
+
+Status status = stub_->GetKarma(&context, request, &reply);
+if (status.ok()) {
+return reply.karma();
+} else {
+return 0;
+}
+}
+
+bool PostArticle(const std::string& username) {
+PostArticleRequest request;
+request.set_title(“Article about gRPC”);
+request.set_body(“bla-bla-bla”);
+request.set_tag(“UFO”);
+request.set_hab(“Infopulse”);
+PostArticleResponse reply;
+ClientContext context;
+
+Status status = stub_->PostArticle(&context, request, &reply);
+return status.ok() && reply.posted();
+}
+
+private:
+std::unique_ptr stub_;
+};
+
+int main(int argc, char** argv) {
+StackoverflowClient client(
+grpc::CreateChannel(“localhost:50051”, grpc::InsecureCredentials(),
+ChannelArguments()));
+std::string user(“tangro”);
+std::string reply = client.GetKarma(user);
+std::cout << "Karma received: " << reply << std::endl; return 0; }
+
+Server
+We inherit the class from the service class, generated in Stackover.grpc.pb.h, and run its methods. Then, we launch a listener on one of the ports, and wait for clients. It should look something like this:
+
+#include <iostream>
+#include <memory>
+#include <string>
+
+#include <grpc/grpc.h>
+#include <grpc++/server.h>
+#include <grpc++/server_builder.h>
+#include <grpc++/server_context.h>
+#include <grpc++/server_credentials.h>
+#include “Stackover.grpc.pb.h”
+
+using grpc::Server;
+using grpc::ServerBuilder;
+using grpc::ServerContext;
+using grpc::Status;
+using StackoverflowApi::KarmaRequest;
+using StackoverflowApi::KarmaResponse;
+using StackoverflowApi::PostArticleRequest;
+using StackoverflowApi::PostArticleResponse;
+using StackoverflowApi::StackoverflowApi;
+
+class StackoverflowServiceImpl final : public StackoverflowApi::Service {
+Status GetKarma(ServerContext* context, const KarmaRequest* request,
+KarmaResponse* reply) override {
+reply->set_karma(42);
+return Status::OK;
+}
+
+Status PostArticle(ServerContext* context, const PostArticleRequest* request,
+PostArticleResponse* reply) override {
+reply->set_posted(true);
+reply->set_url(“some_url”);
+
+return Status::OK;
+}
+};
+
+void RunServer() {
+std::string server_address(“0.0.0.0:50051”);
+StackoverflowServiceImpl service;
+
+ServerBuilder builder;
+builder.AddListeningPort(server_address, grpc::InsecureServerCredentials());
+builder.RegisterService(&service);
+std::unique_ptr server(builder.BuildAndStart());
+std::cout << "Server listening on " << server_address << std::endl; server->Wait();
+}
+
+int main(int argc, char** argv) {
+RunServer();
+
+return 0;
+}
+
+Good luck in using the gRPC framework by Google.
+
+Read also:
+C++ module support in Visual Studio 2015 Update 1
+Why C++ sails, while the Vasa sank
